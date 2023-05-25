@@ -12,23 +12,37 @@ import Gillespie_backend as gil
 sys.path.append('/home/hcleroy/PostDoc/aging_condensates/Simulation/Gillespie/Analysis/')
 sys.path.append('/home/hugo/PostDoc/aging_condensates/Gillespie/Analysis/')
 from ToolBox import *
+def histogram_float(*args, **kwargs):
+    counts, bin_edges = np.histogram(*args, **kwargs)
+    return counts.astype(float), bin_edges
+
 def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check_steps,num_bins,max_distance):
-    current_time = 0
-    hist_bin = np.histogram([], bins=num_bins, range=(0, max_distance))
-    bin_centers = (hist_bin[1][:-1] + hist_bin[1][1:]) / 2
-    bin_widths = hist_bin[1][1:] - hist_bin[1][:-1]
+    """
+    Compute the Pair correlation function of a gillespie system. 
+    parameters:
+    output (multiprocessing.queue) : shared queue, to pass the result to a unique function that manage the writting in a file.
+    group_name (string) : name of the group in a hdf5 file
+    step_tot (int) : total time step of the simulation
+    check_steps (int) : steps of computation of the pair correlation function
+    num_bins (int) : number of bins used to compute the pair correlation function
+    max_distance : distance max to compute the pair correlation function
+    """
+    counts, bin_edges = histogram_float([], bins=num_bins, range=(0, max_distance))
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    bin_widths = bin_edges[1:] - bin_edges[:-1]
     shell_volumes = (4 / 3) * np.pi * ((bin_centers + bin_widths)**3 - bin_centers**3)
     for i in range(step_tot//check_steps):
-        hist_bin = np.histogram([], bins=num_bins, range=(0, max_distance))
+        counts, bin_edges = histogram_float([], bins=num_bins, range=(0, max_distance))
+        prev_hist = np.zeros(counts.shape,dtype=float)
         t_tot = 0.
         for t in range(check_steps):
-            move,time = gillespie.evolve()
+            move, time = gillespie.evolve()
             t_tot +=  time
-            hist_bin[0]+=prev_hist*time
+            counts += prev_hist * time
             dist = np.linalg.norm(gillespie.get_R()[1:]-gillespie.get_R()[:-1])
-            prev_hist,bin_edges = np.histogram(dist,bins=num_bins,range=(0,max_distance))
-        hist_bin[0] = hist_bin[0]/(t_tot*shell_volumes)
-    output.put(('create_array',('/'+group_name,str(i),hist_bin)))
+            prev_hist, bin_edges = histogram_float(dist, bins=num_bins, range=(0, max_distance))
+        counts = counts / (t_tot * shell_volumes)
+    output.put(('create_array',('/'+group_name,'step_'+str(i),np.stack((counts, bin_centers), axis=-1))))
 
 def  Run(inqueue,output,step_tot,check_steps,num_bins,max_distance):
     # simulation_name is a "f_"+float.hex() 
@@ -58,8 +72,8 @@ def  Run(inqueue,output,step_tot,check_steps,num_bins,max_distance):
         gillespie = gil.Gillespie(ell_tot=ell_tot, rho0=0., BindingEnergy=Energy, kdiff=kdiff,
                             seed=seed, sliding=False, Nlinker=Nlinker, old_gillespie=None, dimension=dimension)
         # pass it as an argument, R returns an array of size (step_tot//check_steps,Nlinker+2,3)
-        Compute_Pair_Correlation_Function(gillespie,output,'bin_hist_'+hex(seed),step_tot,check_steps,num_bins,max_distance)
         output.put(('create_group',('/','bin_hist_'+hex(seed))))
+        Compute_Pair_Correlation_Function(gillespie,output,'bin_hist_'+hex(seed),step_tot,check_steps,num_bins,max_distance)        
         #output.put(('create_array',('/',"R_"+hex(seed),R)))
 
 def handle_output(output,filename,header):
@@ -88,7 +102,7 @@ def handle_output(output,filename,header):
             break # it break and close
     hdf.close()
 def make_header(args,sim_arg):
-    header +='is close enough to the average entropy curve (that has been computed by averaging 50 to 100 systems) '
+    header ='is close enough to the average entropy curve (that has been computed by averaging 50 to 100 systems) '
     header += 'the file is composed of arrays, each array name can be written : h_X...X where X...X represent an hexadecimal '
     header+= 'name for an integer that corresponds to the seed of the simulation. Each array is made of the position of N '
     header+= 'linkers. Additionnally, the two first entry of the array are [S,NaN,Nan] and [t,NaN,NaN] that are respectively  '
