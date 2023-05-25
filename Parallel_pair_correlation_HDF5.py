@@ -32,24 +32,27 @@ def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     bin_widths = bin_edges[1:] - bin_edges[:-1]
     shell_volumes = (4 / 3) * np.pi * ((bin_centers + bin_widths)**3 - bin_centers**3)
+
+    current_time=0
     for i in range(step_tot//check_steps):
         counts, bin_edges = histogram_float([], bins=num_bins, range=(0, max_distance))
         prev_hist = np.zeros(counts.shape,dtype=float)
         t_tot = 0.
         for t in range(check_steps):
             move, time = gillespie.evolve()
-            t_tot +=  time
-            counts += prev_hist * time
+            t_tot +=  time[0]
+            counts += prev_hist * time[0]
             if linked :
-                dist = np.linalg.norm(gillespie.get_R()[1:]-gillespie.get_R()[:-1])
+                dist = np.linalg.norm(gillespie.get_R()[1:]-gillespie.get_R()[:-1],axis=1)
             else:
                 dist_matrix = distance_matrix(gillespie.get_R(),gillespie.get_R())
                 dist = dist_matrix[np.triu_indices_from(dist_matrix, k=1)]
             prev_hist, bin_edges = histogram_float(dist, bins=num_bins, range=(0, max_distance))
         counts = counts / (t_tot * shell_volumes)
-        output.put(('create_array',('/'+group_name,'step_'+str(i),np.stack((bin_centers,counts), axis=-1))))
+        current_time+=t_tot
+        output.put(('create_array',('/'+group_name,'step_'+str(i),np.stack((bin_centers,counts), axis=-1)),current_time))
 
-def  Run(inqueue,output,step_tot,check_steps,num_bins,max_distance):
+def  Run(inqueue,output,step_tot,check_steps,num_bins,max_distance,linked):
     # simulation_name is a "f_"+float.hex() 
     """
     Each run process fetch a set of parameters called args, and run the associated simulation until the set of arg is empty.
@@ -78,7 +81,7 @@ def  Run(inqueue,output,step_tot,check_steps,num_bins,max_distance):
                             seed=seed, sliding=False, Nlinker=Nlinker, old_gillespie=None, dimension=dimension)
         # pass it as an argument, R returns an array of size (step_tot//check_steps,Nlinker+2,3)
         output.put(('create_group',('/','bin_hist_'+hex(seed))))
-        Compute_Pair_Correlation_Function(gillespie,output,'bin_hist_'+hex(seed),step_tot,check_steps,num_bins,max_distance)        
+        Compute_Pair_Correlation_Function(gillespie,output,'bin_hist_'+hex(seed),step_tot,check_steps,num_bins,max_distance,linked)        
         #output.put(('create_array',('/',"R_"+hex(seed),R)))
 
 def handle_output(output,filename,header):
@@ -101,8 +104,13 @@ def handle_output(output,filename,header):
     while True: # run until we get a False
         args = output.get() # access the last element (if there is no element, it keeps waiting for one)
         if args: # if it has an element access it
-            method, args = args # the elements should be tuple, the first element is a method second is the argument.
-            getattr(hdf, method)(*args) # execute the method of hdf with the given args
+            if args.__len__() == 3:
+                method, args,time = args # the elements should be tuple, the first element is a method second is the argument.
+                array = getattr(hdf, method)(*args) # execute the method of hdf with the given args
+                array.attrs['time'] = time
+            else :
+                method, args = args # the elements should be tuple, the first element is a method second is the argument.
+                array = getattr(hdf, method)(*args) # execute the method of hdf with the given args
         else: # once it receive a None
             break # it break and close
     hdf.close()
@@ -121,7 +129,7 @@ def make_header(args,sim_arg):
     header += 'dimension = '+str(args[5])+'\n'
     header+='step_tot = '+str(sim_arg[0])+'\n'
     header+='check_steps = '+str(sim_arg[1])+'\n'
-def  Parallel_correlation_function(args,step_tot,check_steps,filename,num_bins,max_distance):
+def  Parallel_correlation_function(args,step_tot,check_steps,filename,num_bins,max_distance,linked):
     """
     compute the pair correlation function evolution of the system.
     We only compute the correlation of subsequent linked linkers
@@ -143,7 +151,7 @@ def  Parallel_correlation_function(args,step_tot,check_steps,filename,num_bins,m
     proc = mp.Process(target=handle_output, args=(output,filename,header)) # start the process handle_output, that will only end at the very end
     proc.start() # start it
     for i in range(num_process):
-        p = mp.Process(target=Run, args=(inqueue, output,step_tot,check_steps,num_bins,max_distance)) # start all the 12 processes that do nothing until we add somthing to the queue
+        p = mp.Process(target=Run, args=(inqueue, output,step_tot,check_steps,num_bins,max_distance,linked)) # start all the 12 processes that do nothing until we add somthing to the queue
         jobs.append(p)
         p.daemon = True
         p.start()
