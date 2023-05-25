@@ -1,6 +1,7 @@
 import numpy as np
 import multiprocessing as mp
 import math
+from scipy.spatial import distance_matrix
 from multiprocessing import shared_memory
 import sys
 import queue
@@ -16,7 +17,7 @@ def histogram_float(*args, **kwargs):
     counts, bin_edges = np.histogram(*args, **kwargs)
     return counts.astype(float), bin_edges
 
-def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check_steps,num_bins,max_distance):
+def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check_steps,num_bins,max_distance,linked=False):
     """
     Compute the Pair correlation function of a gillespie system. 
     parameters:
@@ -39,10 +40,14 @@ def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check
             move, time = gillespie.evolve()
             t_tot +=  time
             counts += prev_hist * time
-            dist = np.linalg.norm(gillespie.get_R()[1:]-gillespie.get_R()[:-1])
+            if linked :
+                dist = np.linalg.norm(gillespie.get_R()[1:]-gillespie.get_R()[:-1])
+            else:
+                dist_matrix = distance_matrix(gillespie.get_R(),gillespie.get_R())
+                dist = dist_matrix[np.triu_indices_from(dist_matrix, k=1)]
             prev_hist, bin_edges = histogram_float(dist, bins=num_bins, range=(0, max_distance))
         counts = counts / (t_tot * shell_volumes)
-    output.put(('create_array',('/'+group_name,'step_'+str(i),np.stack((counts, bin_centers), axis=-1))))
+        output.put(('create_array',('/'+group_name,'step_'+str(i),np.stack((bin_centers,counts), axis=-1))))
 
 def  Run(inqueue,output,step_tot,check_steps,num_bins,max_distance):
     # simulation_name is a "f_"+float.hex() 
@@ -140,6 +145,7 @@ def  Parallel_correlation_function(args,step_tot,check_steps,filename,num_bins,m
     for i in range(num_process):
         p = mp.Process(target=Run, args=(inqueue, output,step_tot,check_steps,num_bins,max_distance)) # start all the 12 processes that do nothing until we add somthing to the queue
         jobs.append(p)
+        p.daemon = True
         p.start()
     for arg in args:
         inqueue.put(arg)  # put all the list of tuple argument inside the input queue.
