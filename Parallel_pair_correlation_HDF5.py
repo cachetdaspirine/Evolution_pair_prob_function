@@ -17,6 +17,28 @@ def histogram_float(*args, **kwargs):
     counts, bin_edges = np.histogram(*args, **kwargs)
     return counts.astype(float), bin_edges
 
+def compute_cumulative_distribution(counts, num_bins, max_distance):
+    # Calculate bin edges
+    bin_edges = np.linspace(0, max_distance, num_bins + 1)
+
+    # Calculate bin centers
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    # Calculate bin widths
+    bin_widths = np.diff(bin_edges)
+
+    # Calculate shell volumes
+    shell_volumes = (4 / 3) * np.pi * ((bin_centers + bin_widths)**3 - bin_centers**3)
+
+    # Calculate probabilities by multiplying counts (probability densities) by shell volumes
+    probabilities = counts * shell_volumes
+
+    # Calculate cumulative probabilities
+    cumulative_prob = np.cumsum(probabilities)
+
+    return bin_centers, cumulative_prob
+
+
 def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check_steps,num_bins,max_distance,linked=False):
     """
     Compute the Pair correlation function of a gillespie system. 
@@ -48,7 +70,7 @@ def Compute_Pair_Correlation_Function(gillespie,output,group_name,step_tot,check
                 dist_matrix = distance_matrix(gillespie.get_R(),gillespie.get_R())
                 dist = dist_matrix[np.triu_indices_from(dist_matrix, k=1)]
             prev_hist, bin_edges = histogram_float(dist, bins=num_bins, range=(0, max_distance))
-        counts = counts / (t_tot * shell_volumes)
+        counts = counts / (t_tot * shell_volumes*dist.shape[0])
         current_time+=t_tot
         output.put(('create_array',('/'+group_name,'step_'+str(i),np.stack((bin_centers,counts), axis=-1)),current_time))
 
