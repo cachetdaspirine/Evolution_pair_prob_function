@@ -9,9 +9,11 @@ import copy
 import tables as pt
 sys.path.append('/home/hcleroy/PostDoc/aging_condensates/Simulation/Gillespie/Gillespie_backend/')
 sys.path.append('/home/hugo/PostDoc/aging_condensates/Gillespie/Gillespie_backend/')
+sys.path.append('/home/hcleroy/aging_condensate/Gillespie/Gillespie_backend/')
 import Gillespie_backend as gil
 sys.path.append('/home/hcleroy/PostDoc/aging_condensates/Simulation/Gillespie/Analysis/')
 sys.path.append('/home/hugo/PostDoc/aging_condensates/Gillespie/Analysis/')
+sys.path.append('/home/hcleroy/aging_condensate/Gillespie/Analysis/')
 from ToolBox import *
 def histogram_float(*args, **kwargs):
     counts, bin_edges = np.histogram(*args, **kwargs)
