@@ -125,6 +125,7 @@ def handle_output(output,filename,header):
     are complete. At this point, the function closes the HDF5 file and terminates.
     """
     hdf = pt.open_file(filename, mode='w') # open a hdf5 file
+    hdf.root._v_attrs.header = header
     while True: # run until we get a False
         args = output.get() # access the last element (if there is no element, it keeps waiting for one)
         if args: # if it has an element access it
